@@ -29,6 +29,7 @@ P_ = rcommon.L10N.ungettext
 BUILD_SEARCH_FIELDS = [
     models.ARCHITECTURE_KEY,
     models.DEFCONFIG_FULL_KEY,
+    models.BUILD_ENVIRONMENT_KEY,
     models.ERRORS_KEY,
     models.ID_KEY,
     models.STATUS_KEY,
@@ -36,6 +37,7 @@ BUILD_SEARCH_FIELDS = [
 ]
 
 BUILD_SEARCH_SORT = [
+    (models.BUILD_ENVIRONMENT_KEY, pymongo.ASCENDING),
     (models.DEFCONFIG_KEY, pymongo.ASCENDING),
     (models.DEFCONFIG_FULL_KEY, pymongo.ASCENDING),
     (models.ARCHITECTURE_KEY, pymongo.ASCENDING)
@@ -48,22 +50,22 @@ DEFCONFIG_URL = (
 DEFCONFIG_ID_URL = (u"{build_url:s}/id/{build_id:s}/")
 LOG_URL = (
     u"{storage_url:s}/{job:s}/{git_branch:}/{kernel:s}/{arch:s}" +
-    u"/{defconfig:s}/" + utils.BUILD_LOG_FILE)
+    u"/{defconfig:s}/{build_environment:s}" + utils.BUILD_LOG_FILE)
 ERR_LOG_URL = (
     u"{storage_url:s}/{job:s}/{git_branch:s}/{kernel:s}/{arch:s}" +
-    u"/{defconfig:s}/" + utils.BUILD_ERRORS_FILE)
+    u"/{defconfig:s}/{build_environment:s}" + utils.BUILD_ERRORS_FILE)
 WARN_LOG_URL = (
     u"{storage_url:s}/{job:s}/{git_branch:s}/{kernel:s}/{arch:s}" +
-    u"/{defconfig:s}/" + utils.BUILD_WARNINGS_FILE)
+    u"/{defconfig:s}/{build_environment:s}" + utils.BUILD_WARNINGS_FILE)
 MISM_LOG_URL = (
     u"{storage_url:s}/{job:s}/{git_branch:s}/{kernel:s}/{arch:s}" +
-    u"/{defconfig:s}/" + utils.BUILD_MISMATCHES_FILE)
+    u"/{defconfig:s}/{build_environment:s}" + utils.BUILD_MISMATCHES_FILE)
 BUILD_SUMMARY_URL = \
     u"{build_url:s}/{job:s}/branch/{git_branch:}/kernel/{kernel:s}/"
 
 
 # Other template strings.
-DEFCONFIG_URL_HTML = u"<a href=\"{defconfig_url:s}\">{defconfig:s}</a>"
+DEFCONFIG_URL_HTML = u"<a href=\"{defconfig_url:s}\">{defconfig:s} ({build_environment:s})</a>"
 STATUS_HTML = (
     u"<a style=\"color: {red:s}\" href=\"{log_url:s}\">{status:s}</a>"
 )
@@ -96,6 +98,7 @@ def _get_errors_count(results):
         arch = res_get(models.ARCHITECTURE_KEY)
         defconfig = res_get(models.DEFCONFIG_KEY)
         defconfig_full = res_get(models.DEFCONFIG_FULL_KEY, defconfig)
+        build_environment = res_get(models.BUILD_ENVIRONMENT_KEY)
         res_errors = res_get(models.ERRORS_KEY, 0)
         res_warnings = res_get(models.WARNINGS_KEY, 0)
 
@@ -114,6 +117,7 @@ def _get_errors_count(results):
 
         if err_struct:
             err_struct[models.BUILD_ID_KEY] = res_get(models.ID_KEY)
+            err_struct[models.BUILD_ENVIRONMENT_KEY] = build_environment
 
             if arch in arch_keys:
                 if defconfig_full in err_data[arch].keys():
@@ -151,9 +155,11 @@ def _parse_build_data(results):
         arch = res_get(models.ARCHITECTURE_KEY)
         defconfig = res_get(models.DEFCONFIG_FULL_KEY, None) or \
             res_get(models.DEFCONFIG_KEY)
+        environment = res_get(models.BUILD_ENVIRONMENT_KEY)
 
         struct = (
             defconfig,
+            environment,
             res_get(models.STATUS_KEY),
             res_get(models.ID_KEY)
         )
@@ -326,12 +332,13 @@ def _parse_and_structure_results(**kwargs):
 
             for struct in f_get(arch):
                 subs["defconfig"] = struct[0]
-                subs["status"] = struct[1]
-                if struct[2]:
+                subs["build_environment"] = struct[1]
+                subs["status"] = struct[2]
+                if struct[3]:
                     subs["defconfig_url"] = DEFCONFIG_ID_URL
-                    subs["build_id"] = struct[2]
+                    subs["build_id"] = struct[3]
 
-                txt_str = G_(u"{defconfig:s}: {status:s}").format(**subs)
+                txt_str = G_(u"{defconfig:s}: ({build_environment:s}) {status:s}").format(**subs)
                 html_str = (
                     DEFCONFIG_URL_HTML.format(**subs).format(**subs),
                     STATUS_HTML.format(**subs).format(**subs))
@@ -340,6 +347,7 @@ def _parse_and_structure_results(**kwargs):
         platforms["failed_data"] = None
 
     if error_data:
+        utils.LOG.warn("error_data: {}".format(error_data))
         platforms["error_data"] = {}
 
         if errors_count > 0 and warnings_count > 0:
@@ -372,57 +380,59 @@ def _parse_and_structure_results(**kwargs):
                 defconfigs.sort()
 
                 for defconfig in defconfigs:
-                    err_numb = err_get(arch)[defconfig].get(
-                        models.ERRORS_KEY, 0)
-                    warn_numb = err_get(arch)[defconfig].get(
-                        models.WARNINGS_KEY, 0)
-                    build_id = err_get(arch)[defconfig].get(
-                        models.BUILD_ID_KEY)
+                    for build_environment in defconfig:
+                        err_numb = err_get(arch)[defconfig].get(
+                            models.ERRORS_KEY, 0)
+                        warn_numb = err_get(arch)[defconfig].get(
+                            models.WARNINGS_KEY, 0)
+                        build_id = err_get(arch)[defconfig].get(
+                            models.BUILD_ID_KEY)
 
-                    if build_id:
-                        subs["defconfig_url"] = DEFCONFIG_ID_URL
-                        subs["build_id"] = build_id
+                        if build_id:
+                            subs["defconfig_url"] = DEFCONFIG_ID_URL
+                            subs["build_id"] = build_id
 
-                    err_string = P_(
-                        u"{errors:d} error",
-                        u"{errors:d} errors", err_numb)
-                    warn_string = P_(
-                        u"{warnings:d} warning",
-                        u"{warnings:d} warnings", warn_numb)
+                        err_string = P_(
+                            u"{errors:d} error",
+                            u"{errors:d} errors", err_numb)
+                        warn_string = P_(
+                            u"{warnings:d} warning",
+                            u"{warnings:d} warnings", warn_numb)
 
-                    subs["defconfig"] = defconfig
-                    subs["err_string"] = err_string
-                    subs["errors"] = err_numb
-                    subs["warn_string"] = warn_string
-                    subs["warnings"] = warn_numb
+                        subs["defconfig"] = defconfig
+                        subs["build_environment"] = build_environment
+                        subs["err_string"] = err_string
+                        subs["errors"] = err_numb
+                        subs["warn_string"] = warn_string
+                        subs["warnings"] = warn_numb
 
-                    if err_numb > 0 and warn_numb > 0:
-                        txt_desc_str = G_(
-                            u"{err_string:s}, {warn_string:s}")
-                        html_desc_str = (
-                            ERR_STR_HTML.format(**subs).format(**subs),
-                            WARN_STR_HTML.format(**subs).format(**subs)
-                        )
-                    elif err_numb > 0 and warn_numb == 0:
-                        txt_desc_str = u"{err_string:s}"
-                        html_desc_str = (
-                            ERR_STR_HTML.format(**subs).format(**subs), u"")
-                    elif err_numb == 0 and warn_numb > 0:
-                        txt_desc_str = u"{warn_string:s}"
-                        html_desc_str = (
-                            u"", WARN_STR_HTML.format(**subs).format(**subs))
+                        if err_numb > 0 and warn_numb > 0:
+                            txt_desc_str = G_(
+                                u"{err_string:s}, {warn_string:s}")
+                            html_desc_str = (
+                                ERR_STR_HTML.format(**subs).format(**subs),
+                                WARN_STR_HTML.format(**subs).format(**subs)
+                            )
+                        elif err_numb > 0 and warn_numb == 0:
+                            txt_desc_str = u"{err_string:s}"
+                            html_desc_str = (
+                                ERR_STR_HTML.format(**subs).format(**subs), u"")
+                        elif err_numb == 0 and warn_numb > 0:
+                            txt_desc_str = u"{warn_string:s}"
+                            html_desc_str = (
+                                u"", WARN_STR_HTML.format(**subs).format(**subs))
 
-                    txt_desc_str = txt_desc_str.format(**subs)
-                    subs["txt_desc_str"] = txt_desc_str
+                        txt_desc_str = txt_desc_str.format(**subs)
+                        subs["txt_desc_str"] = txt_desc_str
 
-                    txt_defconfig_str = (
-                        G_(u"{defconfig:s}: {txt_desc_str:s}").format(**subs)
-                    ).format(**subs)
-                    html_defconfing_str = (
-                        DEFCONFIG_URL_HTML.format(**subs).format(**subs),
-                        html_desc_str)
+                        txt_defconfig_str = (
+                            G_(u"{defconfig:s}: {txt_desc_str:s}").format(**subs)
+                        ).format(**subs)
+                        html_defconfing_str = (
+                            DEFCONFIG_URL_HTML.format(**subs).format(**subs),
+                            html_desc_str)
 
-                    error_append((txt_defconfig_str, html_defconfing_str))
+                        error_append((txt_defconfig_str, html_defconfing_str))
     else:
         platforms["error_data"] = None
 
