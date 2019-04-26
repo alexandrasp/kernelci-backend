@@ -44,6 +44,7 @@ LAVA_JOB_RESULT = {
 TEST_CASE_MAP = {
     models.NAME_KEY: "name",
     models.STATUS_KEY: "result",
+    models.INDEX_KEY: "logged",
 }
 
 TEST_CASE_NAME_EXTRA = {
@@ -432,12 +433,14 @@ def _add_test_results(group, suite_results, suite_name):
     test_cases = []
     test_sets = {}
 
-    for test in tests:
+    for idx, test in enumerate(reversed(tests)):
         test_case = {
             models.VERSION_KEY: "1.1",
             models.TIME_KEY: "0.0",
         }
         test_case.update({k: test[v] for k, v in TEST_CASE_MAP.iteritems()})
+        test_case[models.INDEX_KEY] = idx
+
         test_meta = test["metadata"]
         if suite_name == "lava":
             _parse_lava_test_data(test_case, test_meta)
