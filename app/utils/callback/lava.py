@@ -43,8 +43,7 @@ LAVA_JOB_RESULT = {
 
 TEST_CASE_MAP = {
     models.NAME_KEY: "name",
-    models.STATUS_KEY: "result",
-    models.INDEX_KEY: "logged",
+    models.STATUS_KEY: "result"
 }
 
 TEST_CASE_NAME_EXTRA = {
