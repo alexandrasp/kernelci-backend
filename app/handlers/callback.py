@@ -15,6 +15,7 @@
 
 import tornado.web
 from celery import chain
+import yaml
 
 import handlers.base as hbase
 import handlers.common.query
@@ -138,20 +139,58 @@ class LavaCallbackHandler(CallbackHandler):
     Bound to /callback/lava/<action>
     """
 
+    def __init__(self, *args, **kwargs):
+        super(LavaCallbackHandler, self).__init__(*args, **kwargs)
+        self._json_obj = None
+        self._job_meta = None
+
+    @property
+    def json_obj(self):
+        return self._json_obj
+
+    @property
+    def job_meta(self):
+        return self._job_meta
+
     @staticmethod
     def _valid_keys(method):
         return models.LAVA_CALLBACK_VALID_KEYS.get(method, None)
 
+    def is_valid_json(self, json_obj, **kwargs):
+        valid, errors = super(LavaCallbackHandler, self).is_valid_json(
+            json_obj, **kwargs)
+        if not valid:
+            return valid, errors
+        definition = yaml.load(json_obj["definition"], Loader=yaml.CLoader)
+        job_meta = definition.get("metadata")
+        if not job_meta:
+            return False, "metadata missing from LAVA job definition"
+        self._json_obj = json_obj
+        self._job_meta = job_meta
+        action = kwargs["action"]
+        keys = models.LAVA_CALLBACK_VALID_METADATA_KEYS.get(action, [])
+        mandatory_keys = keys[models.MANDATORY_KEYS]
+        accepted_keys = keys[models.ACCEPTED_KEYS]
+        all_keys = mandatory_keys + accepted_keys
+        job_meta_keys = job_meta.keys()
+        for k in job_meta_keys:
+            if k not in all_keys:
+                return False, "invalid LAVA metadata: {}".format(k)
+        for k in mandatory_keys:
+            if k not in job_meta_keys:
+                return False, "missing mandatory LAVA metadata: {}".format(k)
+        return True, ''
+
     def _execute_callback(self, lab_name, **kwargs):
         action = kwargs["action"]
-        json_obj = kwargs["json_obj"]
         response = hresponse.HandlerResponse()
         response.status_code = 202
         response.reason = "Request accepted and being processed"
 
         if action in ["boot", "test"]:
             tasks = [
-                taskqueue.tasks.callback.lava_test.s(json_obj, lab_name),
+                taskqueue.tasks.callback.lava_test.s(
+                    self.json_obj, self.job_meta, lab_name),
             ]
             if action == "test":
                 tasks.append(taskqueue.tasks.test.find_regression.s())
@@ -164,7 +203,8 @@ class LavaCallbackHandler(CallbackHandler):
         # Also run the legacy boot callback to generate boot entries
         if action == "boot":
             tasks = [
-                taskqueue.tasks.callback.lava_boot.s(json_obj, lab_name),
+                taskqueue.tasks.callback.lava_boot.s(
+                    self.json_obj, self.job_meta, lab_name),
                 taskqueue.tasks.boot.find_regression.s(),
             ]
             chain(tasks).apply_async(
