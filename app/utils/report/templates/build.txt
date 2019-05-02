@@ -28,7 +28,7 @@
 {%- endfor %}
 {% for arch, arch_data in platforms.error_data.data|dictsort %}
 {{ arch }}
-{% for defconfig in arch_data %}
+{%- for defconfig in arch_data %}
     {{ defconfig[0] }}
 {%- endfor %}{# defconfig #}
 {% endfor %}{# arch #}

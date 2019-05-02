@@ -121,11 +121,14 @@ def _get_errors_count(results):
 
             if arch in arch_keys:
                 if defconfig_full in err_data[arch].keys():
-                    # Multiple builds with the same defconfig value?
-                    err_data[arch][defconfig_full][models.WARNINGS_KEY] += \
-                        res_warnings
-                    err_data[arch][defconfig_full][models.ERRORS_KEY] += \
-                        res_errors
+                    if build_environment in err_data[arch][defconfig].keys():
+                        # Multiple builds with the same defconfig value?
+                        err_data[arch][defconfig_full][build_environment][models.WARNINGS_KEY] += \
+                            res_warnings
+                        err_data[arch][defconfig_full][build_environment][models.ERRORS_KEY] += \
+                            res_errors
+                    else:
+                        err_data[arch][defconfig][build_environment] = err_struct
                 else:
                     err_data[arch][defconfig_full] = err_struct
             else:
@@ -380,13 +383,14 @@ def _parse_and_structure_results(**kwargs):
                 defconfigs.sort()
 
                 for defconfig in defconfigs:
-                    for build_environment in defconfig:
                         err_numb = err_get(arch)[defconfig].get(
                             models.ERRORS_KEY, 0)
                         warn_numb = err_get(arch)[defconfig].get(
                             models.WARNINGS_KEY, 0)
                         build_id = err_get(arch)[defconfig].get(
                             models.BUILD_ID_KEY)
+                        build_environment =  err_get(arch)[defconfig].get(
+                            models.BUILD_ENVIRONMENT_KEY)
 
                         if build_id:
                             subs["defconfig_url"] = DEFCONFIG_ID_URL
@@ -426,7 +430,7 @@ def _parse_and_structure_results(**kwargs):
                         subs["txt_desc_str"] = txt_desc_str
 
                         txt_defconfig_str = (
-                            G_(u"{defconfig:s}: {txt_desc_str:s}").format(**subs)
+                            G_(u"{defconfig:s} ({build_environment:s}): {txt_desc_str:s}").format(**subs)
                         ).format(**subs)
                         html_defconfing_str = (
                             DEFCONFIG_URL_HTML.format(**subs).format(**subs),
